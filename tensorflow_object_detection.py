@@ -51,6 +51,7 @@ from colorama import Fore, Back, Style
 #just some info for logging and development purposes
 colorama.init()
 
+YOLO_STARTUP_PARAMS                = 0
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 NUM_PARALLEL_EXEC_UNITS            = 4      # 0 is automatic set by tensorflow
 GPU_NUM                            = 0      # 0 is automatic set by tensorflow
@@ -66,6 +67,15 @@ CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PA
 DETECTION_MODEL          = tf.keras.models.load_model(model_name)
 PATH_TO_TEST_IMAGES_DIR  = 'test_images'
 TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'image{}.jpg'.format(i)) for i in range(1, 8) ]
+
+path_to_classes          = './data/coco.names'
+path_to_weights          = './checkpoints/yolov3.tf'
+image_resize_size        = 416
+INPUT_image              = './data/girl.png'
+output                   = '.output.jpg'
+num_classes              = 80
+yolo_iou_threshold       = 0.5, 'iou threshold')
+yolo_score_threshold     = 0.5, 'score threshold')
 
 
 print(DETECTION_MODEL.inputs)
@@ -104,6 +114,20 @@ def setup_processor_configuration(allow_growth=True):
             # Memory growth must be set before GPUs have been initialized
             print(Fore.RED + Back.WHITE + e + Style.RESET_ALL)
 
+def startup_yolo(YOLO_STARTUP_PARAMS):
+    yolo = YoloV3(classes=FLAGS.num_classes)
+    yolo.summary()
+    logging.info('model created')
+
+    load_darknet_weights(yolo, FLAGS.weights, FLAGS.tiny)
+    logging.info('weights loaded')
+
+    img = np.random.random((1, 320, 320, 3)).astype(np.float32)
+    output = yolo(img)
+    logging.info('sanity check passed')
+
+    yolo.save_weights(FLAGS.output)
+    logging.info('weights saved')
 
 # THIS is how you use those cores individually.
 # timer added for debug and demonstration purposes
@@ -142,22 +166,49 @@ def screencapture():
     cv2.imshow("test", frame)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
-    
-mnist = tf.keras.datasets.mnist
 
-(x_train, y_train), (x_test, y_test) = mnist.load_data()
-x_train, x_test = x_train / 255.0, x_test / 255.0
-model = tf.keras.models.Sequential([
-  tf.keras.layers.Flatten(input_shape=(28, 28)),
-  tf.keras.layers.Dense(128, activation='relu'),
-  tf.keras.layers.Dropout(0.2),
-  tf.keras.layers.Dense(10, activation='softmax')
-])
+def detect_and_draw():
+    yolo = YoloV3(classes=FLAGS.num_classes)
+    yolo.load_weights(FLAGS.weights)
+    logging.info('weights loaded')
+    class_names = [c.strip() for c in open(FLAGS.classes).readlines()]
+    logging.info('classes loaded')
+    img = tf.image.decode_image(open(FLAGS.image, 'rb').read(), channels=3)
+    img = tf.expand_dims(img, 0)
+    img = transform_images(img, FLAGS.size)
+    t1 = time.time()
+    boxes, scores, classes, nums = yolo(img)
+    t2 = time.time()
+    logging.info('time: {}'.format(t2 - t1))
+        logging.info('detections:')
+        for i in range(nums[0]):
+            logging.info('\t{}, {}, {}'.format(
+                class_names[
+                    int(classes[0][i])],
+                    np.array(scores[0][i]),
+                    np.array(boxes[0][i])
+                )
+            )
+        img = cv2.imread(FLAGS.image)
+        img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
+        cv2.imwrite(FLAGS.output, img)
+        logging.info('output saved to: {}'.format(FLAGS.output))
 
-model.compile(optimizer='adam',
+def test_stuff():
+    mnist = tf.keras.datasets.mnist
+    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    x_train, x_test = x_train / 255.0, x_test / 255.0
+    model = tf.keras.models.Sequential([
+    tf.keras.layers.Flatten(input_shape=(28, 28)),
+    tf.keras.layers.Dense(128, activation='relu'),
+    tf.keras.layers.Dropout(0.2),
+    tf.keras.layers.Dense(10, activation='softmax')
+    ])
+    model.compile(optimizer='adam',
               loss='sparse_categorical_crossentropy',
               metrics=['accuracy'])
-model.fit(x_train, y_train, epochs=5)
+    model.fit(x_train, y_train, epochs=5)
+    model.evaluate(x_test,  y_test, verbose=2)
 
-model.evaluate(x_test,  y_test, verbose=2)
-_thread.start_new_thread ( screencapture, args[, kwargs] )
+ def start_capture_threads():   
+    _thread.start_new_thread ( screencapture, args[, kwargs] )
