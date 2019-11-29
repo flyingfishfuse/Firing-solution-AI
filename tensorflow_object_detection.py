@@ -4,20 +4,25 @@
 # pipeline in an attempt to make a ... killbot I guess.
 # of course half of this code is ripped straight from stackoverflow 
 # or the documentation but then again... at first, what learning project isn't?
+# 
+#   * CUDA 10
+#   * cuDNN (look this up asshole, be better than those schlups)
+#   * python 3.6
+#   * tensorflow 2.0
+#   * 
 ###########################################
 # From "research" directory:
 #   * protoc --python_out=. object_detection\protos\*.proto
 #   * run with "py -3.6 ./script.py"
-#   * we are NOT installing the libs, we are using it as a relative path module!
+#   * put yolov3 in the top level directory
 #   * this script goes into your "AI_BRAIN" directory, i.e. top level dir
-#   * this let us package it easily and keep updates seperate.
+#   * 
 #
 ###########################################
 import os
 from timeit import default_timer as timer
 import tensorflow as tf
 from tensorflow.python.client import device_lib
-import _thread
 from PIL import ImageGrab
 import numpy as np
 import cv2
@@ -27,63 +32,77 @@ from io import StringIO
 from matplotlib import pyplot as plt
 from PIL import Image
 from IPython.display import display
+from __future__ import absolute_import, division, print_function, unicode_literals
+from absl import app, flags, logging
+from absl.flags import FLAGS
+from yolov3_tf2.models import YoloV3, YoloV3Tiny
+from yolov3_tf2.utils import load_darknet_weights
+from tensorflow.compat.v1 import ConfigProto
+from tensorflow.compat.v1 import InteractiveSession
 from object_detection.utils import ops as utils_ops
 from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
 import colorama
 from colorama import Fore, Back, Style
+
 #start term color operation
 #stops warnings about AVX2 support... we  usin' a GPU babeh'
 #how manyy cores we are allowing this AI to use for object detection
 #just some info for logging and development purposes
 colorama.init()
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 NUM_PARALLEL_EXEC_UNITS            = 4      # 0 is automatic set by tensorflow
-GPU_NUM                            = 0
-
+GPU_NUM                            = 0      # 0 is automatic set by tensorflow
+NUM_CLASSES                        = 90
+GPU_MEMORY_LIMIT_PER_GPU           = 1024
 # List of the strings that is used to add correct label for each box.
-PATH_TO_LABELS = 'models/research/object_detection/data/mscoco_label_map.pbtxt'
-category_index = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
-model_name  = 'ssd_mobilenet_v1_coco_2017_11_17'
-detection_model  = tf.keras.models.load_model(model_name)
+MODEL_NAME               = 'ssd_inception_v2_coco_2018_1_28'
+PATH_TO_MODEL            = 'object_detection/models' + MODEL_NAME
+PATH_TO_LABELS           = 'object_detection/data/mscoco_label_map.pbtxt'
+LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
+CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
+CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+DETECTION_MODEL          = tf.keras.models.load_model(model_name)
+PATH_TO_TEST_IMAGES_DIR  = 'test_images'
+TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'image{}.jpg'.format(i)) for i in range(1, 8) ]
 
-print(detection_model.inputs)
-print(Fore.CYAN + "DEVICE LIST:" + Style.RESET_ALL)
-print(device_lib.list_local_devices())
-print("DEVICE LIST (GRAPHICAL):" + Style.RESET_ALL)
-# this is how you configure tensorflow to use individual cores, have to
-# label them as individuals... im going to limit myself to 
-# HALF my CPU please thank you.
+
+print(DETECTION_MODEL.inputs)
+
+# this is how you configure tensorflow to use individual cores, have to label them as individuals...   
+# im going to limit myself to HALF my CPU please thank you.
 # Assume that the number of cores per socket in the machine is denoted as NUM_PARALLEL_EXEC_UNITS
 # when NUM_PARALLEL_EXEC_UNITS=0 the system chooses appropriate settings 
-config = tf.compat.v1.ConfigProto(device_count={"CPU": NUM_PARALLEL_EXEC_UNITS},
+#   * we are using 4 cores for testing, set the number at the top of the file
+def setup_processor_configuration(allow_growth=True):
+    config = tf.compat.v1.ConfigProto(device_count={"CPU": NUM_PARALLEL_EXEC_UNITS},
             allow_soft_placement=True,
             inter_op_parallelism_threads=2,
             intra_op_parallelism_threads=NUM_PARALLEL_EXEC_UNITS)
-sess   = tf.compat.v1.Session(config=config)
-gpus   = tf.config.experimental.list_physical_devices('GPU')
-
-# The following example splits the GPU into 2 virtual devices with #Megabytes memory
-# and locks the program to only one physical device
-if assert len(gpus) > 0:
-    print(Fore.RED + "No GPUs found" + Style.RESET_ALL)
-else:
-    # sets single physical device
-    tf.config.experimental.set_visible_devices(gpus[GPU_NUM], 'GPU')
-    # sets virtual devices
-    tf.config.experimental.set_virtual_device_configuration(
-    gpus[GPU_NUM],
-    [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=100),
-    tf.config.experimental.VirtualDeviceConfiguration(memory_limit=100)])
-    try:
-        # Currently, memory growth needs to be the same across GPUs
-        for gpu in gpus:
-            tf.config.experimental.set_memory_growth(gpu, True)
-            logical_gpus = tf.config.experimental.list_logical_devices('GPU')
-            print(len(gpus),Fore.RED +  "Physical GPUs," + Style.RESET_ALL, len(logical_gpus),Fore.MAGENTA +  "Logical GPU's" + Style.RESET_ALL)
-    except RuntimeError as e:
-        # Memory growth must be set before GPUs have been initialized
-        print(Fore.RED + Back.WHITE + e + Style.RESET_ALL)
+    gpus   = tf.config.experimental.list_physical_devices('GPU')
+    # The following example splits the GPU into 2 virtual devices with #Megabytes memory
+    # and locks the program to only one physical device
+    if assert len(gpus) > 0:
+        print(Fore.RED + "No GPUs found" + Style.RESET_ALL)
+    
+    else:
+        # sets single physical device
+        tf.config.experimental.set_visible_devices(gpus[GPU_NUM], 'GPU')
+        # sets virtual devices
+        tf.config.experimental.set_virtual_device_configuration(
+        gpus[GPU_NUM],
+        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=GPU_MEMORY_LIMIT_PER_GPU),
+        tf.config.experimental.VirtualDeviceConfiguration(memory_limit=GPU_MEMORY_LIMIT_PER_GPU)])
+        try:
+            # Currently, memory growth needs to be the same across GPUs
+            for gpu in gpus:
+                tf.config.experimental.set_memory_growth(gpu, allow_growth)
+                logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+                print(len(gpus),Fore.RED +  "Physical GPUs," + Style.RESET_ALL, len(logical_gpus),Fore.MAGENTA +  "Logical GPU's" + Style.RESET_ALL)
+        except RuntimeError as e:
+            # Memory growth must be set before GPUs have been initialized
+            print(Fore.RED + Back.WHITE + e + Style.RESET_ALL)
 
 
 # THIS is how you use those cores individually.
@@ -110,6 +129,12 @@ def gpu_compute(GPU_NUM):
     print(c)
     print(end - start)
 
+def load_image_into_numpy_array(image):
+  (im_width, im_height) = image.size
+  return np.array(image.getdata()).reshape(
+      (im_height, im_width, 3)).astype(np.uint8)
+
+
 def screencapture():
     img = ImageGrab.grab(bbox=(100,10,400,780)) #bbox specifies specific region (bbox= x,y,width,height *starts top-left)
     img_np = np.array(img) #this is the array obtained from conversion
@@ -117,5 +142,22 @@ def screencapture():
     cv2.imshow("test", frame)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
+    
+mnist = tf.keras.datasets.mnist
 
+(x_train, y_train), (x_test, y_test) = mnist.load_data()
+x_train, x_test = x_train / 255.0, x_test / 255.0
+model = tf.keras.models.Sequential([
+  tf.keras.layers.Flatten(input_shape=(28, 28)),
+  tf.keras.layers.Dense(128, activation='relu'),
+  tf.keras.layers.Dropout(0.2),
+  tf.keras.layers.Dense(10, activation='softmax')
+])
+
+model.compile(optimizer='adam',
+              loss='sparse_categorical_crossentropy',
+              metrics=['accuracy'])
+model.fit(x_train, y_train, epochs=5)
+
+model.evaluate(x_test,  y_test, verbose=2)
 _thread.start_new_thread ( screencapture, args[, kwargs] )
