@@ -20,30 +20,55 @@
 #
 ###########################################
 import os
-from timeit import default_timer as timer
-import tensorflow as tf
-from tensorflow.python.client import device_lib
-from PIL import ImageGrab
-import numpy as np
 import cv2
 import zipfile
-from collections import defaultdict
-from io import StringIO
-from matplotlib import pyplot as plt
+import colorama
+import numpy as np
 from PIL import Image
-from IPython.display import display
-from __future__ import absolute_import, division, print_function, unicode_literals
-from absl import app, flags, logging
+import tensorflow as tf
+from io import StringIO
+from PIL import ImageGrab
 from absl.flags import FLAGS
-from yolov3_tf2.models import YoloV3, YoloV3Tiny
-from yolov3_tf2.utils import load_darknet_weights
+from IPython.display import display
+from collections import defaultdict
+from matplotlib import pyplot as plt
+from absl import app, flags, logging
+from yolo_models import YoloV3
+from colorama import Fore, Back, Style
+from timeit import default_timer as timer
+from yolo_utils import draw_outputs
 from tensorflow.compat.v1 import ConfigProto
+from tensorflow.python.client import device_lib
+from yolo_dataset import transform_images
+from yolo_models import YoloV3, YoloV3Tiny
+from yolo_utils import load_darknet_weights
+#from object_detection.utils import label_map_util
 from tensorflow.compat.v1 import InteractiveSession
 from object_detection.utils import ops as utils_ops
-from object_detection.utils import label_map_util
 from object_detection.utils import visualization_utils as vis_util
-import colorama
-from colorama import Fore, Back, Style
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+from tensorflow.keras.callbacks import (
+    ReduceLROnPlateau,
+    EarlyStopping,
+    ModelCheckpoint,
+    TensorBoard
+)
+from tensorflow.keras.callbacks import (
+    ReduceLROnPlateau,
+    EarlyStopping,
+    ModelCheckpoint,
+    TensorBoard
+)
+from models import (
+    YoloV3, 
+    YoloLoss,
+    yolo_anchors, 
+    yolo_anchor_masks,
+)
+from yolo_utils import freeze_all
+import yolo_dataset as yolo_dataset
+
 
 #start term color operation
 #stops warnings about AVX2 support... we  usin' a GPU babeh'
@@ -77,6 +102,28 @@ num_classes              = 80
 yolo_iou_threshold       = 0.5, 'iou threshold')
 yolo_score_threshold     = 0.5, 'score threshold')
 
+flags.DEFINE_string('yolo_dataset', '', 'path to yolo_dataset')
+flags.DEFINE_string('val_dataset', '', 'path to validation yolo_dataset')
+flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
+flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
+                    'path to weights file')
+flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
+flags.DEFINE_enum('mode', 'fit', ['fit', 'eager_fit', 'eager_tf'],
+                  'fit: model.fit, '
+                  'eager_fit: model.fit(run_eagerly=True), '
+                  'eager_tf: custom GradientTape')
+flags.DEFINE_enum('transfer', 'none',
+                  ['none', 'darknet', 'no_output', 'frozen', 'fine_tune'],
+                  'none: Training from scratch, '
+                  'darknet: Transfer darknet, '
+                  'no_output: Transfer all but output, '
+                  'frozen: Transfer and freeze all, '
+                  'fine_tune: Transfer all and freeze darknet only')
+flags.DEFINE_integer('size', 416, 'image size')
+flags.DEFINE_integer('epochs', 2, 'number of epochs')
+flags.DEFINE_integer('batch_size', 8, 'batch size')
+flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
+flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
 
 print(DETECTION_MODEL.inputs)
 
