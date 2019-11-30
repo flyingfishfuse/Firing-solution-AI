@@ -3,12 +3,9 @@ from absl import app, flags, logging
 from absl.flags import FLAGS
 import cv2
 import tensorflow as tf
-from yolov3_tf2.models import (
-    YoloV3, YoloV3Tiny
-)
-from yolov3_tf2.dataset import transform_images
-from yolov3_tf2.utils import draw_outputs
-
+from yolo_models import YoloV3
+from yolo_dataset import transform_images
+from yolo_utils import draw_outputs
 
 flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
 flags.DEFINE_string('weights', './checkpoints/yolov3.tf',

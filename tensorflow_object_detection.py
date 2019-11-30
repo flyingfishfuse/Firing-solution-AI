@@ -60,7 +60,7 @@ from tensorflow.keras.callbacks import (
     ModelCheckpoint,
     TensorBoard
 )
-from models import (
+from yolo_models import (
     YoloV3, 
     YoloLoss,
     yolo_anchors, 
@@ -263,3 +263,10 @@ def test_stuff():
 
  def start_capture_threads():   
     _thread.start_new_thread ( screencapture, args[, kwargs] )
+
+
+if __name__ == '__main__':
+    try:
+        app.run(main)
+    except SystemExit:
+        pass

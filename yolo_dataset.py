@@ -5,13 +5,11 @@ import tensorflow as tf
 def transform_targets_for_output(y_true, grid_size, anchor_idxs, classes):
     # y_true: (N, boxes, (x1, y1, x2, y2, class, best_anchor))
     N = tf.shape(y_true)[0]
-
     # y_true_out: (N, grid, grid, anchors, [x, y, w, h, obj, class])
     y_true_out = tf.zeros(
         (N, grid_size, grid_size, tf.shape(anchor_idxs)[0], 6))
 
     anchor_idxs = tf.cast(anchor_idxs, tf.int32)
-
     indexes = tf.TensorArray(tf.int32, 1, dynamic_size=True)
     updates = tf.TensorArray(tf.float32, 1, dynamic_size=True)
     idx = 0
