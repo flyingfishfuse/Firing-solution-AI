@@ -82,13 +82,15 @@ NUM_PARALLEL_EXEC_UNITS            = 4      # 0 is automatic set by tensorflow
 GPU_NUM                            = 0      # 0 is automatic set by tensorflow
 NUM_CLASSES                        = 90
 GPU_MEMORY_LIMIT_PER_GPU           = 1024
+GPU_FRACTION_LIMIT_BOOL            = False
+GPU_FRACTION_LIMIT                 = .25
 # List of the strings that is used to add correct label for each box.
 MODEL_NAME               = 'ssd_inception_v2_coco_2018_1_28'
 PATH_TO_MODEL            = 'object_detection/models' + MODEL_NAME
 PATH_TO_LABELS           = 'object_detection/data/mscoco_label_map.pbtxt'
-LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
-CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
-CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+#LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
+#CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
+#CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 DETECTION_MODEL          = tf.keras.models.load_model(model_name)
 PATH_TO_TEST_IMAGES_DIR  = 'test_images'
 TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'image{}.jpg'.format(i)) for i in range(1, 8) ]
@@ -119,7 +121,6 @@ flags.DEFINE_enum('transfer', 'none',
                   'no_output: Transfer all but output, '
                   'frozen: Transfer and freeze all, '
                   'fine_tune: Transfer all and freeze darknet only')
-flags.DEFINE_integer('size', 416, 'image size')
 flags.DEFINE_integer('epochs', 2, 'number of epochs')
 flags.DEFINE_integer('batch_size', 8, 'batch size')
 flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
@@ -147,19 +148,22 @@ def setup_processor_configuration(allow_growth=True):
         # sets single physical device
         tf.config.experimental.set_visible_devices(gpus[GPU_NUM], 'GPU')
         # sets virtual devices
-        tf.config.experimental.set_virtual_device_configuration(
-        gpus[GPU_NUM],
-        [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=GPU_MEMORY_LIMIT_PER_GPU),
-        tf.config.experimental.VirtualDeviceConfiguration(memory_limit=GPU_MEMORY_LIMIT_PER_GPU)])
-        try:
-            # Currently, memory growth needs to be the same across GPUs
-            for gpu in gpus:
-                tf.config.experimental.set_memory_growth(gpu, allow_growth)
-                logical_gpus = tf.config.experimental.list_logical_devices('GPU')
-                print(len(gpus),Fore.RED +  "Physical GPUs," + Style.RESET_ALL, len(logical_gpus),Fore.MAGENTA +  "Logical GPU's" + Style.RESET_ALL)
-        except RuntimeError as e:
-            # Memory growth must be set before GPUs have been initialized
-            print(Fore.RED + Back.WHITE + e + Style.RESET_ALL)
+        if GPU_FRACTION_LIMIT_BOOL == True :
+            config.gpu_options.per_process_gpu_memory_fraction = GPU_FRACTION_LIMIT
+        else:
+            tf.config.experimental.set_virtual_device_configuration(
+            gpus[GPU_NUM],
+            [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=GPU_MEMORY_LIMIT_PER_GPU),
+            tf.config.experimental.VirtualDeviceConfiguration(memory_limit=GPU_MEMORY_LIMIT_PER_GPU)])
+            try:
+                # Currently, memory growth needs to be the same across GPUs
+                for gpu in gpus:
+                    tf.config.experimental.set_memory_growth(gpu, allow_growth)
+                    logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+                    print(len(gpus),Fore.RED +  "Physical GPUs," + Style.RESET_ALL, len(logical_gpus),Fore.MAGENTA +  "Logical GPU's" + Style.RESET_ALL)
+            except RuntimeError as e:
+                # Memory growth must be set before GPUs have been initialized
+                print(Fore.RED + Back.WHITE + e + Style.RESET_ALL)
 
 def startup_yolo(YOLO_STARTUP_PARAMS):
     yolo = YoloV3(classes=FLAGS.num_classes)
