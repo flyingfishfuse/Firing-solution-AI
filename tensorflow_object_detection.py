@@ -42,7 +42,7 @@ from tensorflow.python.client import device_lib
 from yolo_dataset import transform_images
 from yolo_models import YoloV3, YoloV3Tiny
 from yolo_utils import load_darknet_weights
-#from object_detection.utils import label_map_util
+from object_detection.utils import label_map_util
 from tensorflow.compat.v1 import InteractiveSession
 from object_detection.utils import ops as utils_ops
 from object_detection.utils import visualization_utils as vis_util
@@ -86,11 +86,11 @@ GPU_FRACTION_LIMIT_BOOL            = False
 GPU_FRACTION_LIMIT                 = .25
 # List of the strings that is used to add correct label for each box.
 MODEL_NAME               = 'ssd_inception_v2_coco_2018_1_28'
-PATH_TO_MODEL            = 'object_detection/models' + MODEL_NAME
-PATH_TO_LABELS           = 'object_detection/data/mscoco_label_map.pbtxt'
-#LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
-#CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
-#CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
+PATH_TO_MODEL            = 'models/' + MODEL_NAME
+PATH_TO_LABELS           = 'mscoco_label_map.pbtxt'
+LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
+CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
+CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
 DETECTION_MODEL          = tf.keras.models.load_model(model_name)
 PATH_TO_TEST_IMAGES_DIR  = 'test_images'
 TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'image{}.jpg'.format(i)) for i in range(1, 8) ]
@@ -101,8 +101,8 @@ image_resize_size        = 416
 INPUT_image              = './data/girl.png'
 output                   = '.output.jpg'
 num_classes              = 80
-yolo_iou_threshold       = 0.5, 'iou threshold')
-yolo_score_threshold     = 0.5, 'score threshold')
+yolo_iou_threshold       = 0.5
+yolo_score_threshold     = 0.5
 
 flags.DEFINE_string('yolo_dataset', '', 'path to yolo_dataset')
 flags.DEFINE_string('val_dataset', '', 'path to validation yolo_dataset')
@@ -196,6 +196,7 @@ def cpu_compute(core_num):
 #written for single gpu systems, change GPU_NUM for more
 # timer added for debug and demonstration purposes
 def gpu_compute(GPU_NUM):
+    start = timer()
     with tf.device("/gpu:" + GPU_NUM)
         a = tf.constant([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
         b = tf.constant([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])

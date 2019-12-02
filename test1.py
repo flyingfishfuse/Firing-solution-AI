@@ -22,7 +22,9 @@ GPU_FRACTION_LIMIT                 = .25
 NUM_PARALLEL_EXEC_UNITS            = 1
 NUM_PARALLEL_INTEROP               = 1
 print(tf.version.VERSION)
-
+model                              = tf.keras.models
+#ENABLE DEBUGGERING!
+tf.debugging.set_log_device_placement(True)
 
 config = tf.compat.v1.ConfigProto(device_count={"CPU": 0},
             allow_soft_placement=True,
@@ -37,33 +39,46 @@ print(len(gpus),Fore.RED +  "Physical GPUs," + Style.RESET_ALL)
 def gpu_compute_timed1(gpunum):
     start = timer()
     with tf.device(gpunum):
-        print(Fore.MAGENTA + Back.WHITE + "Training Model!" + Style.RESET_ALL)
-        (train_images, train_labels), (test_images, test_labels) = tf.keras.datasets.mnist.load_data()
-        train_labels = train_labels[:1000]
-        test_labels = test_labels[:1000]
-        train_images = train_images[:1000].reshape(-1, 28 * 28) / 255.0
-        test_images = test_images[:1000].reshape(-1, 28 * 28) / 255.0
+        print(Fore.MAGENTA + Back.WHITE + "Loading Dataset!" + Style.RESET_ALL)
+        mnist = tf.keras.datasets.mnist
+        (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        x_train, x_test = x_train / 255.0, x_test / 255.0
     end = timer()
     print(Fore.MAGENTA + str(end - start)  + Style.RESET_ALL)
 
 def gpu_compute_timed2(gpunum):
-    start = timer()
     with tf.device(gpunum):
+        start = timer()
+        print(Fore.MAGENTA + Back.WHITE + "Loading Dataset!" + Style.RESET_ALL)
+        mnist = tf.keras.datasets.mnist
+        (x_train, y_train), (x_test, y_test) = mnist.load_data()
+        x_train, x_test = x_train / 255.0, x_test / 255.0
+        end = timer()
+        print(Fore.MAGENTA + str(end - start)  + Style.RESET_ALL)
         print(Fore.MAGENTA + Back.WHITE + "Compiling Model!" + Style.RESET_ALL)
         model = tf.keras.models.Sequential([
-            keras.layers.Dense(512, activation='relu', input_shape=(784,)),
-            keras.layers.Dropout(0.2),
-            keras.layers.Dense(10, activation='softmax')])
+            tf.keras.layers.Flatten(input_shape=(28, 28)),
+            tf.keras.layers.Dense(128, activation='relu'),
+            tf.keras.layers.Dropout(0.2),
+            tf.keras.layers.Dense(10, activation='softmax')
+            ])
         model.compile(optimizer='adam',
                         loss='sparse_categorical_crossentropy',
                         metrics=['accuracy'])
-    end = timer()
-    print(Fore.MAGENTA + str(end - start)  + Style.RESET_ALL)
+        end = timer()
+        print(Fore.MAGENTA + str(end - start)  + Style.RESET_ALL)
+        start = timer()
+        print(Fore.MAGENTA + Back.WHITE + "Fitting Model!" + Style.RESET_ALL)
+        model.fit(x_train, y_train, epochs=5)
+        end = timer()
+        print(Fore.MAGENTA + str(end - start)  + Style.RESET_ALL)
+        start = timer()
+        print(Fore.MAGENTA + Back.WHITE + "Evaluating Model!" + Style.RESET_ALL)
+        model.evaluate(x_test,  y_test, verbose=2)
+        end = timer()
+        print(Fore.MAGENTA + str(end - start)  + Style.RESET_ALL)
     return model
-
 gpu_compute_timed1(GPU_NUM)
-# Create a basic model instance
-model = gpu_compute_timed2(GPU_NUM)
-
+asdf = gpu_compute_timed2(GPU_NUM)
 # Display the model's architecture
-model.summary()
+asdf.summary()
