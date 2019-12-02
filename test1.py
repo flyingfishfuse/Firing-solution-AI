@@ -58,6 +58,12 @@ def gpu_compute_timed2(gpunum):
         print(Fore.MAGENTA + Back.WHITE + "Compiling Model!" + Style.RESET_ALL)
         model = tf.keras.models.Sequential([
             tf.keras.layers.Flatten(input_shape=(28, 28)),
+            #
+            # OR you could use :
+            #   import tensorflow.keras.layers as pile_o_layers
+            #   model = tf.keras.models.Sequential()
+            #   model.add(pile_o_layers.Dense(128, activation='relu'))
+            #
             tf.keras.layers.Dense(128, activation='relu'),
             tf.keras.layers.Dropout(0.2),
             tf.keras.layers.Dense(10, activation='softmax')
