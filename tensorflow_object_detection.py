@@ -6,7 +6,7 @@
 # or the documentation but then again... at first, what learning project isn't?
 # 
 #   * CUDA 10
-#   * cuDNN (look this up asshole, be better than those schlups)
+#   * cuDNN (look this version up , be better than those schlups doing shitty documentation)
 #   * python 3.6
 #   * tensorflow 2.0
 #   * 
@@ -21,6 +21,7 @@
 ###########################################
 import os
 import cv2
+import time
 import zipfile
 import colorama
 import numpy as np
@@ -96,7 +97,7 @@ PATH_TO_TEST_IMAGES_DIR  = 'test_images'
 TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'image{}.jpg'.format(i)) for i in range(1, 8) ]
 
 path_to_classes          = './data/coco.names'
-path_to_weights          = './checkpoints/yolov3.tf'
+path_to_weights          = './data/yolov3.weights'  #path to weights file
 image_resize_size        = 416
 INPUT_image              = './data/girl.png'
 output                   = '.output.jpg'
@@ -104,16 +105,29 @@ num_classes              = 80
 yolo_iou_threshold       = 0.5
 yolo_score_threshold     = 0.5
 
-flags.DEFINE_string('yolo_dataset', '', 'path to yolo_dataset')
-flags.DEFINE_string('val_dataset', '', 'path to validation yolo_dataset')
-flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
-flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
-                    'path to weights file')
-flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
+yolo_dataset        =                               #path to yolo_dataset
+val_dataset         =                               #path to validation yolo_dataset
+
+# tiny              = False                         #yolov3 or yolov3-tiny
+
+classes             = './data/coco.names'           #path to classes file
+epochs              = 2                             #number of epochs
+batch_size          = 8                             #batch size
+learning_rate       = 1e-3                          #learning rate
+num_classes         = 80                            #number of classes in the model
+classes_file        = './data/coco.names'           #path to classes file
+weights             = './checkpoints/yolov3.tf'     #path to weights file
+tiny                = False                         # yolov3 or yolov3-tiny
+fsize               =  416                          # resize images to
+video_output        = './data/video.mp4'            #path to video file or number for webcam
+output              = True                          #path to output video
+output_format       = 'XVID'                        #codec used in VideoWriter when saving video to file
+
 flags.DEFINE_enum('mode', 'fit', ['fit', 'eager_fit', 'eager_tf'],
                   'fit: model.fit, '
                   'eager_fit: model.fit(run_eagerly=True), '
                   'eager_tf: custom GradientTape')
+
 flags.DEFINE_enum('transfer', 'none',
                   ['none', 'darknet', 'no_output', 'frozen', 'fine_tune'],
                   'none: Training from scratch, '
@@ -121,10 +135,6 @@ flags.DEFINE_enum('transfer', 'none',
                   'no_output: Transfer all but output, '
                   'frozen: Transfer and freeze all, '
                   'fine_tune: Transfer all and freeze darknet only')
-flags.DEFINE_integer('epochs', 2, 'number of epochs')
-flags.DEFINE_integer('batch_size', 8, 'batch size')
-flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
-flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
 
 print(DETECTION_MODEL.inputs)
 
@@ -166,49 +176,24 @@ def setup_processor_configuration(allow_growth=True):
                 print(Fore.RED + Back.WHITE + e + Style.RESET_ALL)
 
 def startup_yolo(YOLO_STARTUP_PARAMS):
-    yolo = YoloV3(classes=FLAGS.num_classes)
+    yolo = YoloV3( classes= num_classes)
     yolo.summary()
     logging.info('model created')
 
-    load_darknet_weights(yolo, FLAGS.weights, FLAGS.tiny)
+    load_darknet_weights(yolo, path_to_weights)
     logging.info('weights loaded')
 
     img = np.random.random((1, 320, 320, 3)).astype(np.float32)
     output = yolo(img)
     logging.info('sanity check passed')
 
-    yolo.save_weights(FLAGS.output)
+    yolo.save_weights(output)
     logging.info('weights saved')
 
-# THIS is how you use those cores individually.
-# timer added for debug and demonstration purposes
-def cpu_compute(core_num):
-    start = timer()
-    with tf.device("/cpu:" + core_num):
-        a = tf.constant([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-        b = tf.constant([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-        c = tf.matmul(a, b)
-    end = timer()
-    print(c)
-    print(end - start)
-
-  # ...
-#written for single gpu systems, change GPU_NUM for more
-# timer added for debug and demonstration purposes
-def gpu_compute(GPU_NUM):
-    start = timer()
-    with tf.device("/gpu:" + GPU_NUM)
-        a = tf.constant([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]])
-        b = tf.constant([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
-        c = tf.matmul(a, b)
-    end = timer()
-    print(c)
-    print(end - start)
 
 def load_image_into_numpy_array(image):
   (im_width, im_height) = image.size
-  return np.array(image.getdata()).reshape(
-      (im_height, im_width, 3)).astype(np.uint8)
+  return np.array(image.getdata()).reshape((im_height, im_width, 3)).astype(np.uint8)
 
 
 def screencapture():
@@ -220,16 +205,16 @@ def screencapture():
     cv2.destroyAllWindows()
 
 def detect_and_draw():
-    yolo = YoloV3(classes=FLAGS.num_classes)
-    yolo.load_weights(FLAGS.weights)
+    yolo = YoloV3(classes= num_classes)
+    yolo.load_weights(FLAGS.path_to_weights)
     logging.info('weights loaded')
-    class_names = [c.strip() for c in open(FLAGS.classes).readlines()]
+    class_names = [c.strip() for c in open(path_to_classes).readlines()]
     logging.info('classes loaded')
-    img = tf.image.decode_image(open(FLAGS.image, 'rb').read(), channels=3)
+    img = tf.image.decode_image(open(INPUT_image, 'rb').read(), channels=3)
     img = tf.expand_dims(img, 0)
-    img = transform_images(img, FLAGS.size)
+    img = transform_images(img, fsize)
     t1 = time.time()
-    boxes, scores, classes, nums = yolo(img)
+    boxes, scores, num_classes, nums = yolo(img)
     t2 = time.time()
     logging.info('time: {}'.format(t2 - t1))
         logging.info('detections:')
@@ -242,25 +227,61 @@ def detect_and_draw():
                 )
             )
         img = cv2.imread(FLAGS.image)
-        img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
+        img = draw_outputs(img, (boxes, scores, num_classes, nums), class_names)
         cv2.imwrite(FLAGS.output, img)
-        logging.info('output saved to: {}'.format(FLAGS.output))
+        logging.info('output saved to: {}'.format(video_output))
 
-def test_stuff():
-    mnist = tf.keras.datasets.mnist
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()
-    x_train, x_test = x_train / 255.0, x_test / 255.0
-    model = tf.keras.models.Sequential([
-    tf.keras.layers.Flatten(input_shape=(28, 28)),
-    tf.keras.layers.Dense(128, activation='relu'),
-    tf.keras.layers.Dropout(0.2),
-    tf.keras.layers.Dense(10, activation='softmax')
-    ])
-    model.compile(optimizer='adam',
-              loss='sparse_categorical_crossentropy',
-              metrics=['accuracy'])
-    model.fit(x_train, y_train, epochs=5)
-    model.evaluate(x_test,  y_test, verbose=2)
+
+def video_stream_detector():
+    physical_devices = tf.config.experimental.list_physical_devices('GPU')
+    if len(physical_devices) > 0:
+        tf.config.experimental.set_memory_growth(physical_devices[0], True)
+    yolo.load_weights(path_to_weights)
+    logging.info('weights loaded')
+    class_names = [c.strip() for c in open(classes_file).readlines()]
+    logging.info('classes loaded')
+    times = []
+    try:
+        vid = cv2.VideoCapture(int(video_output))
+    except:
+        vid = cv2.VideoCapture(video_output)
+    out = None                                                                                   
+    if output == True:
+        # by default VideoCapture returns float instead of int
+        width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(vid.get(cv2.CAP_PROP_FPS))
+        codec = cv2.VideoWriter_fourcc(*FLAGS.output_format)
+        out = cv2.VideoWriter(FLAGS.output, codec, fps, (width, height))
+
+    while True:
+        _, img = vid.read()
+
+        if img is None:
+            logging.warning("Empty Frame")
+            time.sleep(0.1)
+            continue
+
+        img_in = tf.expand_dims(img, 0)
+        img_in = transform_images(img_in, FLAGS.size)
+
+        t1 = time.time()
+        boxes, scores, classes, nums = yolo.predict(img_in)
+        t2 = time.time()
+        times.append(t2-t1)
+        times = times[-20:]
+
+        img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
+        img = cv2.putText(img, "Time: {:.2f}ms".format(sum(times)/len(times)*1000), (0, 30),
+                          cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
+        if FLAGS.output:
+            out.write(img)
+        cv2.imshow('output', img)
+        if cv2.waitKey(1) == ord('q'):
+            break
+
+    cv2.destroyAllWindows()
+
 
  def start_capture_threads():   
     _thread.start_new_thread ( screencapture, args[, kwargs] )

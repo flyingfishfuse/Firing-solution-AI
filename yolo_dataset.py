@@ -61,8 +61,7 @@ def transform_targets(y_train, anchors, anchor_masks, classes):
     y_train = tf.concat([y_train, anchor_idx], axis=-1)
 
     for anchor_idxs in anchor_masks:
-        y_outs.append(transform_targets_for_output(
-            y_train, grid_size, anchor_idxs, classes))
+        y_outs.append(transform_targets_for_output(y_train, grid_size, anchor_idxs, classes))
         grid_size *= 2
 
     return tuple(y_outs)

@@ -7,44 +7,31 @@ from yolo_models import YoloV3
 from yolo_dataset import transform_images
 from yolo_utils import draw_outputs
 
-flags.DEFINE_string('classes', './data/coco.names', 'path to classes file')
-flags.DEFINE_string('weights', './checkpoints/yolov3.tf',
-                    'path to weights file')
-flags.DEFINE_boolean('tiny', False, 'yolov3 or yolov3-tiny')
-flags.DEFINE_integer('size', 416, 'resize images to')
-flags.DEFINE_string('video', './data/video.mp4',
-                    'path to video file or number for webcam)')
-flags.DEFINE_string('output', None, 'path to output video')
-flags.DEFINE_string('output_format', 'XVID', 'codec used in VideoWriter when saving video to file')
-flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
+classes_file         = './data/coco.names'           #path to classes file
+weights         = './checkpoints/yolov3.tf'     #path to weights file
+tiny            = False                         # yolov3 or yolov3-tiny
+fsize           =  416                          # resize images to
+video_output    = './data/video.mp4'            #path to video file or number for webcam
+output          = True                          #path to output video
+output_format   = 'XVID'                        #codec used in VideoWriter when saving video to file
+num_classes     =  80                           #number of classes in the model
 
 
-def main(_argv):
+def video_stream_detector():
     physical_devices = tf.config.experimental.list_physical_devices('GPU')
     if len(physical_devices) > 0:
         tf.config.experimental.set_memory_growth(physical_devices[0], True)
-
-    if FLAGS.tiny:
-        yolo = YoloV3Tiny(classes=FLAGS.num_classes)
-    else:
-        yolo = YoloV3(classes=FLAGS.num_classes)
-
-    yolo.load_weights(FLAGS.weights)
+    yolo.load_weights(weights)
     logging.info('weights loaded')
-
-    class_names = [c.strip() for c in open(FLAGS.classes).readlines()]
+    class_names = [c.strip() for c in open(classes_file).readlines()]
     logging.info('classes loaded')
-
     times = []
-
     try:
-        vid = cv2.VideoCapture(int(FLAGS.video))
+        vid = cv2.VideoCapture(int(video_output))
     except:
-        vid = cv2.VideoCapture(FLAGS.video)
-
-    out = None
-
-    if FLAGS.output:
+        vid = cv2.VideoCapture(video_output)
+    out = None                                                                                   
+    if output == True:
         # by default VideoCapture returns float instead of int
         width = int(vid.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(vid.get(cv2.CAP_PROP_FRAME_HEIGHT))
