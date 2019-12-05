@@ -1,9 +1,10 @@
 #!"C:\Python36\python.exe"
 
-#test application of the object identifier part of the AI
+# test application of the object identifier part of the AI
 # pipeline in an attempt to make a ... killbot I guess.
 # of course half of this code is ripped straight from stackoverflow 
-# or the documentation but then again... at first, what learning project isn't?
+# and github or the documentation and then hacked until unrecognizable  
+# but then again... at first, what learning project isn't?
 # 
 #   * CUDA 10
 #   * cuDNN (look this version up , be better than those schlups doing shitty documentation)
@@ -28,6 +29,7 @@ import numpy as np
 from PIL import Image
 import tensorflow as tf
 from io import StringIO
+from pathlib import Path
 from PIL import ImageGrab
 from absl.flags import FLAGS
 from IPython.display import display
@@ -37,12 +39,10 @@ from absl import app, flags, logging
 from yolo_models import YoloV3
 from colorama import Fore, Back, Style
 from timeit import default_timer as timer
-from yolo_utils import draw_outputs
 from tensorflow.compat.v1 import ConfigProto
 from tensorflow.python.client import device_lib
 from yolo_dataset import transform_images
-from yolo_models import YoloV3, YoloV3Tiny
-from yolo_utils import load_darknet_weights
+from yolo_models import YoloV3
 from object_detection.utils import label_map_util
 from tensorflow.compat.v1 import InteractiveSession
 from object_detection.utils import ops as utils_ops
@@ -67,8 +67,20 @@ from yolo_models import (
     yolo_anchors, 
     yolo_anchor_masks,
 )
-from yolo_utils import freeze_all
 import yolo_dataset as yolo_dataset
+
+# OverWrite the class for some arcane reason
+from tensorflow.keras.layers import BatchNormalization
+class BatchNormalization(tf.keras.layers.BatchNormalization):
+    """
+    Make trainable=False freeze BN for real (the og version is sad)
+    """
+
+    def call(self, x, training=False):
+        if training is None:
+            training = tf.constant(False)
+        training = tf.logical_and(training, self.trainable)
+        return super().call(x, training)
 
 
 #start term color operation
@@ -87,17 +99,19 @@ GPU_FRACTION_LIMIT_BOOL            = False
 GPU_FRACTION_LIMIT                 = .25
 # List of the strings that is used to add correct label for each box.
 MODEL_NAME               = 'ssd_inception_v2_coco_2018_1_28'
-#PATH_TO_MODEL            = 'models/' + MODEL_NAME
-PATH_TO_LABELS           = 'mscoco_label_map.pbtxt'
+SAVED_MODEL              = '/saved_model'
+LABLE_MAP_FILE           = 'mscoco_label_map.pbtxt'
+PATH_TO_MODEL            = Path('./models')
+PATH_TO_LABELS           = Path('./labels')
 LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
 CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
 CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
-DETECTION_MODEL          = tf.keras.models.load_model('./')
-PATH_TO_TEST_IMAGES_DIR  = ''
-TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'meme.jpg')]
+DETECTION_MODEL          = tf.keras.models.load_model('')
+PATH_TO_TEST_IMAGES_DIR  = Path('./test_images')
+TEST_IMAGE_PATHS         = [ PATH_TO_TEST_IMAGES_DIR + 'meme.jpg']
 
-path_to_classes          = './data/coco.names'
-path_to_weights          = './data/yolov3.weights'  #path to weights file
+path_to_classes          = './labels/coco.names'
+path_to_weights          = './weights/yolov3.weights'  #path to weights file
 image_resize_size        = 416
 INPUT_image              = './data/girl.png'
 output                   = '.output.jpg'
@@ -132,10 +146,21 @@ YOLOV3_LAYER_LIST = [
     'yolo_conv_2',
     'yolo_output_2',
 ]
-yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
-                         (59, 119), (116, 90), (156, 198), (373, 326)],
-                        np.float32) / 416
-yolo_anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
+yolo_anchors = np.array([(10, 13), 
+                         (16, 30), 
+                         (33, 23), 
+                         (30, 61), 
+                         (62, 45),
+                         (59, 119), 
+                         (116, 90), 
+                         (156, 198), 
+                         (373, 326)], 
+                         np.float32) / 416
+
+yolo_anchor_masks = np.array([[6, 7, 8], 
+                              [3, 4, 5], 
+                              [0, 1, 2]
+                              ])
 
 flags.DEFINE_enum('mode', 'fit', ['fit', 'eager_fit', 'eager_tf'],
                   'fit: model.fit, '
@@ -149,6 +174,26 @@ flags.DEFINE_enum('transfer', 'none',
                   'no_output: Transfer all but output, '
                   'frozen: Transfer and freeze all, '
                   'fine_tune: Transfer all and freeze darknet only')
+
+flags.DEFINE_string('dataset', '', 'path to dataset')
+flags.DEFINE_string('val_dataset', '', 'path to validation dataset')
+
+flags.DEFINE_string('weights', '\\yolov3.tf','path to weights file')
+flags.DEFINE_enum('mode', 'fit', ['fit', 'eager_fit', 'eager_tf'],
+                  'fit: model.fit, '
+                  'eager_fit: model.fit(run_eagerly=True), '
+                  'eager_tf: custom GradientTape')
+flags.DEFINE_enum('transfer', 'none', ['none', 'darknet', 'no_output', 'frozen', 'fine_tune'],
+                  'none: Training from scratch, '
+                  'darknet: Transfer darknet, '
+                  'no_output: Transfer all but output, '
+                  'frozen: Transfer and freeze all, '
+                  'fine_tune: Transfer all and freeze darknet only')
+flags.DEFINE_integer('size', 416, 'image size')
+flags.DEFINE_integer('epochs', 2, 'number of epochs')
+flags.DEFINE_integer('batch_size', 8, 'batch size')
+flags.DEFINE_float('learning_rate', 1e-3, 'learning rate')
+flags.DEFINE_integer('num_classes', 80, 'number of classes in the model')
 
 print(DETECTION_MODEL)
 

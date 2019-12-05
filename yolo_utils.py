@@ -18,7 +18,7 @@ YOLOV3_LAYER_LIST = [
 def load_darknet_weights(model, weights_file, tiny=False):
     wf = open(weights_file, 'rb')
     major, minor, revision, seen, _ = np.fromfile(wf, dtype=np.int32, count=5)
-        layers = YOLOV3_LAYER_LIST
+    layers = YOLOV3_LAYER_LIST
     for layer_name in layers:
         sub_model = model.get_layer(layer_name)
         for i, layer in enumerate(sub_model.layers):

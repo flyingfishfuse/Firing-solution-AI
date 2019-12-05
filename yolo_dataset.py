@@ -70,7 +70,6 @@ def transform_images(x_train, size):
     x_train = x_train / 255
     return x_train
 
-
 # https://github.com/tensorflow/models/blob/master/research/object_detection/g3doc/using_your_own_dataset.md#conversion-script-outline-conversion-script-outline
 IMAGE_FEATURE_MAP = {
     'image/width': tf.io.FixedLenFeature([], tf.int64),
