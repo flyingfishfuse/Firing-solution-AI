@@ -87,14 +87,14 @@ GPU_FRACTION_LIMIT_BOOL            = False
 GPU_FRACTION_LIMIT                 = .25
 # List of the strings that is used to add correct label for each box.
 MODEL_NAME               = 'ssd_inception_v2_coco_2018_1_28'
-PATH_TO_MODEL            = 'models/' + MODEL_NAME
+#PATH_TO_MODEL            = 'models/' + MODEL_NAME
 PATH_TO_LABELS           = 'mscoco_label_map.pbtxt'
 LABEL_MAP                = label_map_util.load_labelmap(PATH_TO_LABELS)
 CATEGORIES               = label_map_util.convert_label_map_to_categories(LABEL_MAP, max_num_classes=NUM_CLASSES, use_display_name=True)
 CATEGORY_INDEX           = label_map_util.create_category_index_from_labelmap(PATH_TO_LABELS, use_display_name=True)
-DETECTION_MODEL          = tf.keras.models.load_model(model_name)
-PATH_TO_TEST_IMAGES_DIR  = 'test_images'
-TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'image{}.jpg'.format(i)) for i in range(1, 8) ]
+DETECTION_MODEL          = tf.keras.models.load_model('./')
+PATH_TO_TEST_IMAGES_DIR  = ''
+TEST_IMAGE_PATHS         = [ os.path.join(PATH_TO_TEST_IMAGES_DIR, 'meme.jpg')]
 
 path_to_classes          = './data/coco.names'
 path_to_weights          = './data/yolov3.weights'  #path to weights file
@@ -105,8 +105,8 @@ num_classes              = 80
 yolo_iou_threshold       = 0.5
 yolo_score_threshold     = 0.5
 
-yolo_dataset        =                               #path to yolo_dataset
-val_dataset         =                               #path to validation yolo_dataset
+yolo_dataset        = None                              #path to yolo_dataset
+val_dataset         = None                              #path to validation yolo_dataset
 
 # tiny              = False                         #yolov3 or yolov3-tiny
 
@@ -123,6 +123,20 @@ video_output        = './data/video.mp4'            #path to video file or numbe
 output              = True                          #path to output video
 output_format       = 'XVID'                        #codec used in VideoWriter when saving video to file
 
+YOLOV3_LAYER_LIST = [
+    'yolo_darknet',
+    'yolo_conv_0',
+    'yolo_output_0',
+    'yolo_conv_1',
+    'yolo_output_1',
+    'yolo_conv_2',
+    'yolo_output_2',
+]
+yolo_anchors = np.array([(10, 13), (16, 30), (33, 23), (30, 61), (62, 45),
+                         (59, 119), (116, 90), (156, 198), (373, 326)],
+                        np.float32) / 416
+yolo_anchor_masks = np.array([[6, 7, 8], [3, 4, 5], [0, 1, 2]])
+
 flags.DEFINE_enum('mode', 'fit', ['fit', 'eager_fit', 'eager_tf'],
                   'fit: model.fit, '
                   'eager_fit: model.fit(run_eagerly=True), '
@@ -136,7 +150,7 @@ flags.DEFINE_enum('transfer', 'none',
                   'frozen: Transfer and freeze all, '
                   'fine_tune: Transfer all and freeze darknet only')
 
-print(DETECTION_MODEL.inputs)
+print(DETECTION_MODEL)
 
 # this is how you configure tensorflow to use individual cores, have to label them as individuals...   
 # im going to limit myself to HALF my CPU please thank you.
@@ -151,7 +165,7 @@ def setup_processor_configuration(allow_growth=True):
     gpus   = tf.config.experimental.list_physical_devices('GPU')
     # The following example splits the GPU into 2 virtual devices with #Megabytes memory
     # and locks the program to only one physical device
-    if assert len(gpus) > 0:
+    if len(gpus) > 0:
         print(Fore.RED + "No GPUs found" + Style.RESET_ALL)
     
     else:
@@ -179,14 +193,11 @@ def startup_yolo(YOLO_STARTUP_PARAMS):
     yolo = YoloV3( classes= num_classes)
     yolo.summary()
     logging.info('model created')
-
     load_darknet_weights(yolo, path_to_weights)
     logging.info('weights loaded')
-
     img = np.random.random((1, 320, 320, 3)).astype(np.float32)
     output = yolo(img)
     logging.info('sanity check passed')
-
     yolo.save_weights(output)
     logging.info('weights saved')
 
@@ -194,6 +205,94 @@ def startup_yolo(YOLO_STARTUP_PARAMS):
 def load_image_into_numpy_array(image):
   (im_width, im_height) = image.size
   return np.array(image.getdata()).reshape((im_height, im_width, 3)).astype(np.uint8)
+
+def load_darknet_weights(model, weights_file):
+    wf = open(weights_file, 'rb')
+    major, minor, revision, seen, _ = np.fromfile(wf, dtype=np.int32, count=5)
+    layers = YOLOV3_LAYER_LIST
+    for layer_name in layers:
+        sub_model = model.get_layer(layer_name)
+        for i, layer in enumerate(sub_model.layers):
+            if not layer.name.startswith('conv2d'):
+                continue
+            batch_norm = None
+            if i + 1 < len(sub_model.layers) and sub_model.layers[i + 1].name.startswith('batch_norm'):
+                batch_norm = sub_model.layers[i + 1]
+            logging.info("{}/{} {}".format(sub_model.name, layer.name, 'bn' if batch_norm else 'bias'))
+            filters = layer.filters
+            size = layer.kernel_size[0]
+            in_dim = layer.input_shape[-1]
+            if batch_norm is None:
+                conv_bias = np.fromfile(wf, dtype=np.float32, count=filters)
+            else:
+                # darknet [beta, gamma, mean, variance]
+                bn_weights = np.fromfile(wf, dtype=np.float32, count=4 * filters)
+                # tf [gamma, beta, mean, variance]
+                bn_weights = bn_weights.reshape((4, filters))[[1, 0, 2, 3]]
+            # darknet shape (out_dim, in_dim, height, width)
+            conv_shape = (filters, in_dim, size, size)
+            conv_weights = np.fromfile(wf, dtype=np.float32, count=np.product(conv_shape))
+            # tf shape (height, width, in_dim, out_dim)
+            conv_weights = conv_weights.reshape(conv_shape).transpose([2, 3, 1, 0])
+
+            if batch_norm is None:
+                layer.set_weights([conv_weights, conv_bias])
+            else:
+                layer.set_weights([conv_weights])
+                batch_norm.set_weights(bn_weights)
+    assert len(wf.read()) == 0, 'failed to read all data'
+    wf.close()
+
+def broadcast_iou(box_1, box_2):
+    # box_1: (..., (x1, y1, x2, y2))
+    # box_2: (N, (x1, y1, x2, y2))
+    # broadcast boxes
+    box_1 = tf.expand_dims(box_1, -2)
+    box_2 = tf.expand_dims(box_2, 0)
+    # new_shape: (..., N, (x1, y1, x2, y2))
+    new_shape = tf.broadcast_dynamic_shape(tf.shape(box_1), tf.shape(box_2))
+    box_1 = tf.broadcast_to(box_1, new_shape)
+    box_2 = tf.broadcast_to(box_2, new_shape)
+
+    int_w = tf.maximum(tf.minimum(box_1[..., 2], box_2[..., 2]) -
+                       tf.maximum(box_1[..., 0], box_2[..., 0]), 0)
+    int_h = tf.maximum(tf.minimum(box_1[..., 3], box_2[..., 3]) -
+                       tf.maximum(box_1[..., 1], box_2[..., 1]), 0)
+    int_area = int_w * int_h
+    box_1_area = (box_1[..., 2] - box_1[..., 0]) * (box_1[..., 3] - box_1[..., 1])
+    box_2_area = (box_2[..., 2] - box_2[..., 0]) * (box_2[..., 3] - box_2[..., 1])
+    return int_area / (box_1_area + box_2_area - int_area)
+
+def draw_outputs(img, outputs, class_names):
+    boxes, objectness, classes, nums = outputs
+    boxes, objectness, classes, nums = boxes[0], objectness[0], classes[0], nums[0]
+    wh = np.flip(img.shape[0:2])
+    for i in range(nums):
+        x1y1 = tuple((np.array(boxes[i][0:2]) * wh).astype(np.int32))
+        x2y2 = tuple((np.array(boxes[i][2:4]) * wh).astype(np.int32))
+        img = cv2.rectangle(img, x1y1, x2y2, (255, 0, 0), 2)
+        img = cv2.putText(img, '{} {:.4f}'.format(class_names[int(classes[i])], objectness[i]),x1y1, cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
+    return img
+
+def draw_labels(x, y, class_names):
+    img = x.numpy()
+    boxes, classes = tf.split(y, (4, 1), axis=-1)
+    classes = classes[..., 0]
+    wh = np.flip(img.shape[0:2])
+    for i in range(len(boxes)):
+        x1y1 = tuple((np.array(boxes[i][0:2]) * wh).astype(np.int32))
+        x2y2 = tuple((np.array(boxes[i][2:4]) * wh).astype(np.int32))
+        img = cv2.rectangle(img, x1y1, x2y2, (255, 0, 0), 2)
+        img = cv2.putText(img, class_names[classes[i]],
+                          x1y1, cv2.FONT_HERSHEY_COMPLEX_SMALL,
+                          1, (0, 0, 255), 2)
+    return img
+
+def freeze_all(model, frozen=True):
+    model.trainable = not frozen
+    if isinstance(model, tf.keras.Model):
+        for l in model.layers:
+            freeze_all(l, frozen)
 
 
 def screencapture():
@@ -217,19 +316,18 @@ def detect_and_draw():
     boxes, scores, num_classes, nums = yolo(img)
     t2 = time.time()
     logging.info('time: {}'.format(t2 - t1))
-        logging.info('detections:')
-        for i in range(nums[0]):
-            logging.info('\t{}, {}, {}'.format(
-                class_names[
-                    int(classes[0][i])],
-                    np.array(scores[0][i]),
-                    np.array(boxes[0][i])
-                )
+    logging.info('detections:')
+    for i in range(nums[0]):
+        logging.info('\t{}, {}, {}'.format(class_names[
+            int(classes[0][i])],
+            np.array(scores[0][i]),
+            np.array(boxes[0][i])
             )
-        img = cv2.imread(FLAGS.image)
-        img = draw_outputs(img, (boxes, scores, num_classes, nums), class_names)
-        cv2.imwrite(FLAGS.output, img)
-        logging.info('output saved to: {}'.format(video_output))
+        )
+    img = cv2.imread(FLAGS.image)
+    img = draw_outputs(img, (boxes, scores, num_classes, nums), class_names)
+    cv2.imwrite(FLAGS.output, img)
+    logging.info('output saved to: {}'.format(video_output))
 
 
 def video_stream_detector():
@@ -253,24 +351,19 @@ def video_stream_detector():
         fps = int(vid.get(cv2.CAP_PROP_FPS))
         codec = cv2.VideoWriter_fourcc(*FLAGS.output_format)
         out = cv2.VideoWriter(FLAGS.output, codec, fps, (width, height))
-
     while True:
         _, img = vid.read()
-
         if img is None:
             logging.warning("Empty Frame")
             time.sleep(0.1)
             continue
-
         img_in = tf.expand_dims(img, 0)
         img_in = transform_images(img_in, FLAGS.size)
-
         t1 = time.time()
         boxes, scores, classes, nums = yolo.predict(img_in)
         t2 = time.time()
         times.append(t2-t1)
         times = times[-20:]
-
         img = draw_outputs(img, (boxes, scores, classes, nums), class_names)
         img = cv2.putText(img, "Time: {:.2f}ms".format(sum(times)/len(times)*1000), (0, 30),
                           cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (0, 0, 255), 2)
@@ -279,7 +372,6 @@ def video_stream_detector():
         cv2.imshow('output', img)
         if cv2.waitKey(1) == ord('q'):
             break
-
     cv2.destroyAllWindows()
 
 
